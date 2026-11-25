@@ -1,7 +1,8 @@
 "use strict";
 
 const get = (id) => document.getElementById(id);
-const state = {card: null, result: null, photo: null, probe: null, mode: "probe", chart: "profile", busy: false};
+const state = {card: null, result: null, photo: null, probe: null, mode: "probe", chart: "profile",
+               busy: false, segment: null, segmentPick: null};
 const settings = [...document.querySelectorAll("[data-setting]")];
 
 async function api(path, options) {
@@ -37,7 +38,14 @@ async function action(work, target = "notice") {
   } finally {
     state.busy = false;
     document.querySelectorAll("button, select").forEach((node) => { node.disabled = false; });
+    syncSegmentButtons();
   }
+}
+
+function syncSegmentButtons() {
+  const ready = !!(state.card && state.segmentPick);
+  get("seg-preview").disabled = !ready;
+  get("seg-send").disabled = !ready;
 }
 
 async function library() {
@@ -82,6 +90,30 @@ function paintSource() {
   if (probe) {
     ctx.strokeStyle = "#30393b";
     ctx.strokeRect(probe.x - 5, probe.y - 5, 10, 10);
+  }
+  const plan = state.segment;
+  if (plan) {
+    for (const col of plan.columns) {
+      if (!col.passed) {
+        ctx.fillStyle = "rgba(154,74,60,.34)";
+        ctx.fillRect(col.x - 0.5, cfg.top, 1, cfg.bottom - cfg.top + 1);
+      }
+    }
+    const pick = state.segmentPick;
+    if (pick) {
+      ctx.fillStyle = "rgba(52,112,121,.20)";
+      ctx.fillRect(pick.left_x - 1, cfg.top, pick.columns + 2, cfg.bottom - cfg.top + 1);
+      ctx.strokeStyle = "#1f555c";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.strokeRect(pick.left_x - 1.5, cfg.top - 1.5, pick.columns + 3, cfg.bottom - cfg.top + 3);
+      ctx.strokeStyle = "#8a5a37";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(pick.left_x, cfg.top - 6); ctx.lineTo(pick.left_x, cfg.bottom + 6);
+      ctx.moveTo(pick.right_x, cfg.top - 6); ctx.lineTo(pick.right_x, cfg.bottom + 6);
+      ctx.stroke();
+    }
   }
 }
 
@@ -150,6 +182,7 @@ function show() {
   const {card, result} = state;
   get("workspace").hidden = false;
   get("empty").hidden = true;
+  document.querySelector(".segment").hidden = false;
   get("origin").textContent = (card.synthetic ? "合成练习图" : "导入原片") + " · 修订 " + card.revision;
   get("card-title").textContent = card.name;
   get("dimensions").textContent = card.width + " × " + card.height + " px · " + card.photo_name;
@@ -179,8 +212,11 @@ async function open(card) {
   const photo = new Image();
   photo.src = "/sealgauge" + base + "/capture.png";
   const [result] = await Promise.all([api(base + "/measurement?revision=" + card.revision), photo.decode()]);
-  Object.assign(state, {card, result, photo, probe: null});
+  Object.assign(state, {card, result, photo, probe: null, segment: null, segmentPick: null});
   get("library").value = card.id;
+  get("segment-candidates").replaceChildren();
+  get("segment-summary").textContent = "";
+  syncSegmentButtons();
   show();
 }
 
@@ -260,4 +296,115 @@ document.querySelectorAll("[data-chart]").forEach((button) => button.addEventLis
     item.setAttribute("aria-pressed", String(item === button)));
   if (state.card) paintChart();
 }));
+
+function mm(value) {
+  return Number(value).toFixed(2) + " mm";
+}
+
+function pickSegment(candidate, index) {
+  state.segmentPick = candidate;
+  document.querySelectorAll(".segment-option").forEach((node) =>
+    node.setAttribute("aria-pressed", String(Number(node.dataset.index) === index)));
+  syncSegmentButtons();
+  paintSource();
+}
+
+function renderSegment(plan) {
+  state.segment = plan;
+  state.segmentPick = plan.candidates[0] || null;
+  const box = get("segment-candidates");
+  box.replaceChildren();
+  const wanted = plan.request;
+  if (!plan.candidates.length) {
+    const blocked = plan.blocked.slice(0, 6).map((item) =>
+      `X${item.x}（${item.reason}，最长连续 ${item.longest_px} px）`).join("；");
+    get("segment-summary").innerHTML = "框内没有 " + wanted.columns +
+      " 列相邻合格原列可达到 " + mm(wanted.length_mm) + "，不能跨越未过列。" +
+      (blocked ? "<br>未过列示例：" + blocked : "");
+    syncSegmentButtons();
+    paintSource();
+    return;
+  }
+  get("segment-summary").innerHTML = "需 " + wanted.columns + " 个相邻完整原列达到 " +
+    mm(wanted.length_mm) + "；最小连续暗痕宽 " + mm(wanted.min_width_mm) +
+    "。共 " + plan.candidates.length + " 段可选，未过列 " + plan.blocked.length +
+    " 列（红竖线），已优先推荐离当前截线 X" + plan.focus + " 近、且最窄处余量大的一段。";
+  plan.candidates.forEach((candidate, index) => {
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = "segment-option";
+    node.dataset.index = index;
+    node.dataset.left = candidate.left_x;
+    node.setAttribute("aria-pressed", String(index === 0));
+    const head = document.createElement("span");
+    head.className = "seg-head";
+    head.innerHTML = "<span>左 X" + candidate.left_x + " · 右 X" + candidate.right_x +
+      "（" + candidate.columns + " 列）</span>" +
+      (candidate.recommended ? '<span class="seg-tag">建议先看</span>' : "");
+    const detail = document.createElement("span");
+    detail.className = "seg-detail";
+    detail.innerHTML = "实际长度 " + mm(candidate.length_mm) +
+      " · 整段最窄连续暗痕 " + candidate.narrowest_px + " px / " + mm(candidate.narrowest_mm) +
+      " · 余量 " + candidate.margin_px + " px / " + mm(candidate.margin_mm) +
+      "<br>离当前截线 " + candidate.distance_px + " px" +
+      (candidate.contains_focus ? "（含当前截线）" : "") +
+      (candidate.margin_px === 0 ? ' · <b class="seg-blocked">最窄处无余量，请谨慎采用</b>' : "");
+    node.append(head, detail);
+    node.addEventListener("click", () => action(() => pickSegment(candidate, index)));
+    box.append(node);
+  });
+  syncSegmentButtons();
+  paintSource();
+}
+
+get("segment-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  action(async () => {
+    const query = new URLSearchParams({
+      revision: state.card.revision,
+      length_mm: get("seg-length").value,
+      min_width_mm: get("seg-width").value,
+    });
+    const plan = await api(route("/segment/plan") + "?" + query.toString());
+    renderSegment(plan);
+  });
+});
+
+get("seg-preview").addEventListener("click", () => action(async () => {
+  const pick = state.segmentPick;
+  if (!pick) return;
+  const query = new URLSearchParams({
+    revision: state.card.revision, left_x: pick.left_x, right_x: pick.right_x,
+    t: Date.now(),
+  });
+  const image = get("segment-preview-img");
+  image.src = "/sealgauge" + route("/segment/preview.png") + "?" + query.toString();
+  get("segment-dialog-meta").textContent =
+    `左 X${pick.left_x} · 右 X${pick.right_x} · ${pick.columns} 列 · 实际长度 ${mm(pick.length_mm)}；` +
+    `上下沿用测量框 Y${state.segment.frame.top}–${state.segment.frame.bottom}（原像素，未缩放）`;
+  await image.decode();
+  get("segment-dialog").showModal();
+}));
+
+get("seg-send").addEventListener("click", () => action(async () => {
+  const pick = state.segmentPick;
+  if (!pick) return;
+  // Open the tab inside the user gesture so popup blockers do not swallow it.
+  const tab = window.open("about:blank", "_blank");
+  try {
+    const {url} = await api(route("/segment/prepare") + savedQuery(), {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({left_x: pick.left_x, right_x: pick.right_x,
+                            length_mm: state.segment.request.length_mm,
+                            min_width_mm: state.segment.request.min_width_mm}),
+    });
+    if (tab) tab.location = url;
+    else location.assign(url);
+  } catch (error) {
+    if (tab) tab.close();
+    throw error;
+  }
+  notice("已按原像素裁成留段帧并新建准备工程；原片起点写在该帧备注里，可在准备工程对回。整张原照仍走原「将原片送入照片准备」。");
+}));
+
 action(library);

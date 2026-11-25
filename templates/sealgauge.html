@@ -51,6 +51,22 @@
           <span id="probe-result">选择原片像素</span>
         </div>
       </section>
+      <section class="panel segment" hidden>
+        <div class="panel-head">
+          <div><h2>留段给同事</h2><span>只用框内相邻完整原列；暗点不相连，含 0/255 削幅像素的列不能凑宽</span></div>
+        </div>
+        <form id="segment-form" class="segment-controls">
+          <label>要留的长度 mm<input id="seg-length" type="number" min="0.001" step="any" required></label>
+          <label>最小暗压痕宽 mm<input id="seg-width" type="number" min="0.001" step="any" required></label>
+          <button class="primary" type="submit">规划留段</button>
+        </form>
+        <p id="segment-summary" class="segment-summary" role="status"></p>
+        <div id="segment-candidates" class="segment-candidates"></div>
+        <div class="segment-actions">
+          <button id="seg-preview" type="button" disabled>查看实际左右边</button>
+          <button id="seg-send" class="primary" type="button" disabled>裁帧送入照片准备 ↗</button>
+        </div>
+      </section>
       <section class="panel profile">
         <div class="panel-head">
           <div><h2 id="chart-title">截线实测亮度</h2><span id="chart-caption">当前截线 · 原片 Y</span></div>
@@ -99,6 +115,14 @@
     <label>照片<input name="photo" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff" required></label>
     <p id="import-notice" role="status"></p>
     <div class="top-actions"><button id="cancel-import" type="button">取消</button><button class="primary" type="submit">建立封边卡</button></div>
+  </form>
+</dialog>
+<dialog id="segment-dialog">
+  <form method="dialog" class="segment-dialog-form">
+    <h2>留段实际左右边 · 原像素</h2>
+    <p id="segment-dialog-meta"></p>
+    <div class="segment-preview-box"><img id="segment-preview-img" alt="留段原像素预览"></div>
+    <div class="top-actions"><button class="primary" value="close">回到规划</button></div>
   </form>
 </dialog>
 </body>
