@@ -57,6 +57,7 @@
           <div class="modes" role="group" aria-label="当前图表">
             <button data-chart="profile" aria-pressed="true" type="button">单列截面</button>
             <button data-chart="coverage" aria-pressed="false" type="button">沿封边</button>
+            <button data-chart="tracks" aria-pressed="false" type="button">双痕沿边</button>
           </div>
         </div>
         <canvas id="chart" width="850" height="166" aria-label="单列实拍截面或沿封边压痕分布"></canvas>
@@ -67,6 +68,12 @@
         <div class="panel-head"><h2>当前连续压痕宽</h2><span id="measurement-state"></span></div>
         <div class="volume"><strong id="width-value">—</strong><span id="width-unit"></span></div>
         <p id="selected-level"></p>
+      </section>
+      <section class="panel readout">
+        <div class="panel-head"><h2>双痕间距</h2><span id="pair-state"></span></div>
+        <div class="volume"><strong id="pair-value">—</strong><span id="pair-unit"></span></div>
+        <p id="pair-detail"></p>
+        <p id="pair-segments"></p>
       </section>
       <form id="calibration" class="panel settings">
         <div class="panel-head"><div><h2>测量框和标尺</h2><span>坐标使用原片像素，X 向右，Y 向下</span></div></div>
@@ -81,6 +88,10 @@
         <fieldset><legend>压痕和比例</legend><div class="form-grid">
           <label>压痕亮度上限<input data-setting="cutoff" type="number" step="1" min="1" max="254" required></label>
           <label>标尺 mm/px<input data-setting="mm_per_px" type="number" step="any" min="0.001" required></label>
+        </div></fieldset>
+        <fieldset><legend>双痕间距 · mm</legend><div class="form-grid">
+          <label>标称间距<input data-setting="nominal_mm" type="number" step="any" min="0.001" value="3" required></label>
+          <label>允许偏差<input data-setting="tolerance_mm" type="number" step="any" min="0" value="0.3" required></label>
         </div></fieldset>
         <button id="save" class="primary" type="submit">保存并测量</button>
       </form>

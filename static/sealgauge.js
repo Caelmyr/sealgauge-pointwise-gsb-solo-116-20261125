@@ -79,6 +79,22 @@ function paintSource() {
     ctx.lineTo(result.focus,b);
     ctx.stroke();
   }
+  if (result.pair) {
+    for (const [segment, color] of [[result.pair.upper, "#3d6ea5"], [result.pair.lower, "#7a4f9e"]]) {
+      const [a,b] = segment.end_y;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(result.focus,a);
+      ctx.lineTo(result.focus,b);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(result.focus-6,segment.center_y);
+      ctx.lineTo(result.focus+6,segment.center_y);
+      ctx.stroke();
+    }
+  }
   if (probe) {
     ctx.strokeStyle = "#30393b";
     ctx.strokeRect(probe.x - 5, probe.y - 5, 10, 10);
@@ -91,27 +107,56 @@ function paintChart() {
   const {width,height} = canvas;
   const {result,card} = state;
   const cfg = card.settings;
-  const coverage = state.chart === "coverage";
-  const lo = coverage ? cfg.left : cfg.top;
-  const hi = coverage ? cfg.right : cfg.bottom;
-  const max = coverage ? cfg.bottom-cfg.top+1 : 255;
+  const mode = state.chart;
+  const across = mode !== "profile";
+  const lo = across ? cfg.left : cfg.top;
+  const hi = across ? cfg.right : cfg.bottom;
+  let yMin = 0, yMax = mode === "coverage" ? cfg.bottom-cfg.top+1 : 255;
+  if (mode === "tracks") {
+    const spacing = result.tracks.filter(Boolean).map((track) => track.spacing_mm);
+    yMin = Math.min(cfg.nominal_mm - cfg.tolerance_mm, ...spacing);
+    yMax = Math.max(cfg.nominal_mm + cfg.tolerance_mm, ...spacing);
+    const pad = Math.max((yMax-yMin)*.18, 1e-6);
+    yMin -= pad; yMax += pad;
+  }
   const xAt = (x) => 40 + (width-76)*(x-lo)/Math.max(1,hi-lo);
-  const yAt = (y) => height-27 - (height-45)*y/max;
-  get("chart-title").textContent = coverage ? "沿封边的暗压痕分布" : "截线实测亮度";
-  get("chart-caption").textContent = coverage ? "框内每列暗像素数 · 原片 X" : "当前截线 · 原片 Y";
+  const yAt = (y) => height-27 - (height-45)*(y-yMin)/Math.max(1e-9,yMax-yMin);
+  get("chart-title").textContent = mode === "coverage" ? "沿封边的暗压痕分布"
+    : mode === "tracks" ? "沿封边双痕间距" : "截线实测亮度";
+  get("chart-caption").textContent = mode === "coverage" ? "框内每列暗像素数 · 原片 X"
+    : mode === "tracks" ? "每列双痕中心距 · 原片 X" : "当前截线 · 原片 Y";
   ctx.clearRect(0,0,width,height);
   ctx.fillStyle = "#fcfdfb";
   ctx.fillRect(0,0,width,height);
-  if (!coverage && result.reading) {
+  if (mode === "tracks") {
+    ctx.fillStyle = "#e7efe7";
+    ctx.fillRect(xAt(lo),yAt(cfg.nominal_mm+cfg.tolerance_mm),xAt(hi)-xAt(lo),
+      yAt(cfg.nominal_mm-cfg.tolerance_mm)-yAt(cfg.nominal_mm+cfg.tolerance_mm));
+  }
+  if (mode === "profile" && result.reading) {
     const [first,last] = result.reading.end_y;
     ctx.fillStyle = "#e3ece7";
-    ctx.fillRect(xAt(first),yAt(max),Math.max(2,xAt(last)-xAt(first)),yAt(0)-yAt(max));
+    ctx.fillRect(xAt(first),yAt(yMax),Math.max(2,xAt(last)-xAt(first)),yAt(yMin)-yAt(yMax));
+  }
+  if (mode === "profile" && result.pair) {
+    for (const [segment, band, line] of [[result.pair.upper, "#d9e5f2", "#3d6ea5"], [result.pair.lower, "#eadff2", "#7a4f9e"]]) {
+      const [first,last] = segment.end_y;
+      ctx.fillStyle = band;
+      ctx.fillRect(xAt(first),yAt(yMax),Math.max(2,xAt(last)-xAt(first)),yAt(yMin)-yAt(yMax));
+      ctx.strokeStyle = line;
+      ctx.setLineDash([4,3]);
+      ctx.beginPath();
+      ctx.moveTo(xAt(segment.center_y),yAt(yMax));
+      ctx.lineTo(xAt(segment.center_y),yAt(yMin));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
   ctx.font = "12px monospace";
   ctx.fillStyle = "#5b6a63";
   ctx.strokeStyle = "#d5e0d9";
-  for (const level of [0,Math.round(max/2),max]) {
-    ctx.fillText(level,5,yAt(level)+3);
+  for (const level of [yMin,(yMin+yMax)/2,yMax]) {
+    ctx.fillText(mode === "tracks" ? level.toFixed(2) : Math.round(level),5,yAt(level)+3);
     ctx.beginPath();
     ctx.moveTo(xAt(lo),yAt(level));
     ctx.lineTo(xAt(hi),yAt(level));
@@ -119,22 +164,33 @@ function paintChart() {
   }
   ctx.fillText(String(lo),xAt(lo),height-7);
   ctx.fillText(String(hi),xAt(hi)-15,height-7);
-  const values = coverage ? result.coverage.map((p) => [p.x,p.pressed_px])
-    : result.profile.map((p) => [p.y,p.brightness]);
   ctx.lineWidth = 2;
   ctx.strokeStyle = "#326d6b";
   ctx.beginPath();
-  values.forEach(([x,y],i) => {
-    if (!i) ctx.moveTo(xAt(x),yAt(y));
-    else ctx.lineTo(xAt(x),yAt(y));
-  });
+  if (mode === "tracks") {
+    let pen = false;
+    result.tracks.forEach((track, i) => {
+      if (!track) { pen = false; return; }
+      const x = xAt(cfg.left+i), y = yAt(track.spacing_mm);
+      if (pen) ctx.lineTo(x,y);
+      else { ctx.moveTo(x,y); pen = true; }
+    });
+  } else {
+    const values = mode === "coverage" ? result.coverage.map((p) => [p.x,p.pressed_px])
+      : result.profile.map((p) => [p.y,p.brightness]);
+    values.forEach(([x,y],i) => {
+      if (!i) ctx.moveTo(xAt(x),yAt(y));
+      else ctx.lineTo(xAt(x),yAt(y));
+    });
+  }
   ctx.stroke();
-  if (!coverage) {
+  const dashed = mode === "profile" ? cfg.cutoff : (mode === "tracks" ? cfg.nominal_mm : null);
+  if (dashed !== null) {
     ctx.strokeStyle = "#b28c51";
     ctx.setLineDash([6,4]);
     ctx.beginPath();
-    ctx.moveTo(xAt(lo),yAt(cfg.cutoff));
-    ctx.lineTo(xAt(hi),yAt(cfg.cutoff));
+    ctx.moveTo(xAt(lo),yAt(dashed));
+    ctx.lineTo(xAt(hi),yAt(dashed));
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -154,7 +210,7 @@ function show() {
   get("card-title").textContent = card.name;
   get("dimensions").textContent = card.width + " × " + card.height + " px · " + card.photo_name;
   get("name").value = card.name;
-  for (const field of settings) field.value = card.settings[field.dataset.setting];
+  for (const field of settings) field.value = card.settings[field.dataset.setting] ?? field.defaultValue;
   get("probe-x").max = card.width - 1;
   get("probe-y").max = card.height - 1;
   get("probe-x").value = state.probe?.x ?? result.focus;
@@ -167,6 +223,19 @@ function show() {
   get("selected-level").textContent = reading
     ? reading.width_px + " px · Y " + reading.end_y.join("–")
     : (result.profile.length ? "这列未见暗压痕" : "截线在测量框外");
+  const pair = result.pair;
+  const cfg = card.settings;
+  get("pair-value").textContent = pair ? pair.spacing_mm.toFixed(2) : "—";
+  get("pair-unit").textContent = pair ? "mm" : "暂无双痕对";
+  get("pair-state").textContent = "原片 X " + result.focus;
+  get("pair-detail").textContent = pair
+    ? "中心距 " + pair.spacing_px.toFixed(1) + " px · 偏差 " + pair.deviation_mm.toFixed(2) +
+      " mm（标称 " + cfg.nominal_mm + " ± " + cfg.tolerance_mm + " mm）"
+    : (result.profile.length ? "这列未找到合规双痕" : "截线在测量框外");
+  get("pair-segments").textContent = pair
+    ? "上道 " + pair.upper.width_px + " px · " + pair.upper.width_mm.toFixed(2) + " mm · Y " + pair.upper.end_y.join("–") +
+      "　下道 " + pair.lower.width_px + " px · " + pair.lower.width_mm.toFixed(2) + " mm · Y " + pair.lower.end_y.join("–")
+    : "";
   for (const [id, filename] of Object.entries({proof: "proof.png", csv: "profile.csv", zip: "observation.zip"})) {
     get(id).href = "/sealgauge" + route("/export/" + filename) + savedQuery();
   }

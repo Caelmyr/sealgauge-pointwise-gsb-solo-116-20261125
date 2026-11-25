@@ -27,6 +27,7 @@ class Cards:
             card = json.loads((self.folder(key) / "card.json").read_text())
             if revision is not None and integer(revision, "工作版本", 1) != card["revision"]:
                 raise Conflict("封边卡已经改动，请重新打开")
+            card["settings"] = seam.settings(card["settings"], (card["width"], card["height"]))
             return card
 
     @staticmethod
