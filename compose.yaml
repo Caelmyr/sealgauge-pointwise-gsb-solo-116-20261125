@@ -1,0 +1,16 @@
+name: solo119-sealgauge
+services:
+  desk:
+    build:
+      context: .
+      args:
+        SEALGAUGE_DEPS_IMAGE: ${SEALGAUGE_DEPS_IMAGE:-python:3.11-slim}
+    image: ${SEALGAUGE_IMAGE:-solo119-sealgauge:1.0}
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:${SEALGAUGE_PORT:-19919}:8000"
+    volumes:
+      - measurements:/var/lib/sealgauge
+    init: true
+volumes:
+  measurements:
